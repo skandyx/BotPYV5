@@ -8,6 +8,8 @@
 
 
 
+
+
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -2087,7 +2089,7 @@ const performStrategyBacktest = (klines) => {
     const initialEquity = 10000;
     const positionPct = 10;
 
-    if (klines.length < bbLen + 1) {
+    if (klines.length < bbLen + 2) {
         return { netProfitPct: 0, totalTrades: 0, winRate: 0, profitFactor: 0, maxDrawdownPct: 0, error: 'Not enough kline data' };
     }
 
@@ -2102,19 +2104,29 @@ const performStrategyBacktest = (klines) => {
     let peakEquity = initialEquity;
     let maxDrawdown = 0;
     let trades = [];
-    let position = null; // { entryPrice, stopLoss, size }
+    let position = null;
 
-    // Start loop where BB data is available
+    // The first result from BollingerBands corresponds to the kline at index (bbLen - 1).
+    // Our loop starts at bbLen to ensure we have a previous candle's data.
     for (let i = bbLen; i < klines.length; i++) {
-        const bbIndex = i - bbLen;
-        const bb = bbResult[bbIndex];
-        const prev_bb = bbResult[bbIndex - 1];
+        // Correctly align Bollinger Band results with the kline array
+        // The result for kline[i] is at index i - (bbLen - 1) in the bbResult array.
+        const bbResultIndexForCurrent = i - (bbLen - 1);
+        
+        // We need a previous BB value, so the result index must be at least 1 to have a valid index 0 before it.
+        if (bbResultIndexForCurrent < 1) {
+            continue;
+        }
+
+        const bbCurrent = bbResult[bbResultIndexForCurrent - 1];
+        const bbPrevious = bbResult[bbResultIndexForCurrent - 2];
         
         const currentClose = closes[i];
-        const prevClose = closes[i - 1];
+        const previousClose = closes[i - 1];
         
-        // Entry Condition
-        const candleBrokeLower = (currentClose < bb.lower) && (prevClose >= prev_bb.lower);
+        // Entry Condition: current close breaks below current lower band, AND previous close was above previous lower band.
+        const candleBrokeLower = (currentClose < bbCurrent.lower) && (previousClose >= bbPrevious.lower);
+        
         if (candleBrokeLower && !position) {
             const positionValue = equity * (positionPct / 100);
             const size = positionValue / currentClose;
@@ -2123,17 +2135,20 @@ const performStrategyBacktest = (klines) => {
                 stopLoss: currentClose * (1 - slPct / 100.0),
                 size: size,
             };
-            equity -= positionValue; // Reduce cash
+            equity -= positionValue;
         }
 
         // Exit / SL Check
         if (position) {
-            const exitHitUpper = highs[i] >= bb.upper;
+            const exitHitUpper = highs[i] >= bbCurrent.upper;
             const slHit = lows[i] <= position.stopLoss;
             let exitPrice = null;
             
-            if (slHit) exitPrice = position.stopLoss;
-            else if (exitHitUpper) exitPrice = bb.upper;
+            if (slHit) {
+                exitPrice = position.stopLoss;
+            } else if (exitHitUpper) {
+                exitPrice = bbCurrent.upper;
+            }
             
             if (exitPrice !== null) {
                 const exitValue = exitPrice * position.size;
@@ -2141,11 +2156,15 @@ const performStrategyBacktest = (klines) => {
                 const pnl = exitValue - entryValue;
                 
                 trades.push({ pnl });
-                equity += exitValue; // Add cash back
+                equity += exitValue;
 
-                if (equity > peakEquity) peakEquity = equity;
+                if (equity > peakEquity) {
+                    peakEquity = equity;
+                }
                 const drawdown = (peakEquity - equity) / peakEquity;
-                if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+                if (drawdown > maxDrawdown) {
+                    maxDrawdown = drawdown;
+                }
 
                 position = null;
             }
@@ -2154,9 +2173,9 @@ const performStrategyBacktest = (klines) => {
     
     // Final metrics
     const netProfitPct = ((equity - initialEquity) / initialEquity) * 100;
+    const totalTrades = trades.length;
     const winningTrades = trades.filter(t => t.pnl > 0);
     const losingTrades = trades.filter(t => t.pnl < 0);
-    const totalTrades = trades.length;
     const winRate = totalTrades > 0 ? (winningTrades.length / totalTrades) * 100 : 0;
     
     const grossProfit = winningTrades.reduce((sum, t) => sum + t.pnl, 0);
