@@ -1,15 +1,4 @@
 
-
-
-
-
-
-
-
-
-
-
-
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -2106,25 +2095,25 @@ const performStrategyBacktest = (klines) => {
     let trades = [];
     let position = null;
 
-    // The first result from BollingerBands corresponds to the kline at index (bbLen - 1).
-    // Our loop starts at bbLen to ensure we have a previous candle's data.
+    // The first BB result corresponds to kline[bbLen - 1].
+    // Our loop starts at i = bbLen to ensure we have data for the previous candle (i-1).
     for (let i = bbLen; i < klines.length; i++) {
-        // Correctly align Bollinger Band results with the kline array
-        // The result for kline[i] is at index i - (bbLen - 1) in the bbResult array.
-        const bbResultIndexForCurrent = i - (bbLen - 1);
-        
-        // We need a previous BB value, so the result index must be at least 1 to have a valid index 0 before it.
-        if (bbResultIndexForCurrent < 1) {
+        // The index in bbResult that corresponds to the kline at index `i`.
+        const bbIndex = i - (bbLen - 1);
+
+        // Ensure we have both a current and previous BB value.
+        // The first iteration will have bbIndex = 1, so bbIndex-1 is valid.
+        if (bbIndex < 1 || bbIndex >= bbResult.length) {
             continue;
         }
 
-        const bbCurrent = bbResult[bbResultIndexForCurrent - 1];
-        const bbPrevious = bbResult[bbResultIndexForCurrent - 2];
-        
+        const bbCurrent = bbResult[bbIndex];
+        const bbPrevious = bbResult[bbIndex - 1];
+
         const currentClose = closes[i];
         const previousClose = closes[i - 1];
         
-        // Entry Condition: current close breaks below current lower band, AND previous close was above previous lower band.
+        // Entry Condition from Pine Script: (close < lower) and (close[1] >= lower[1])
         const candleBrokeLower = (currentClose < bbCurrent.lower) && (previousClose >= bbPrevious.lower);
         
         if (candleBrokeLower && !position) {
