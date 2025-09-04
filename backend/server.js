@@ -2095,39 +2095,32 @@ const performStrategyBacktest = (klines) => {
     let trades = [];
     let position = null;
 
-    // The first BB result corresponds to kline[bbLen - 1].
-    // Our loop starts at i = bbLen to ensure we have data for the previous candle (i-1).
     for (let i = bbLen; i < klines.length; i++) {
-        // The index in bbResult that corresponds to the kline at index `i`.
         const bbIndex = i - (bbLen - 1);
-
-        // Ensure we have both a current and previous BB value.
-        // The first iteration will have bbIndex = 1, so bbIndex-1 is valid.
         if (bbIndex < 1 || bbIndex >= bbResult.length) {
             continue;
         }
 
         const bbCurrent = bbResult[bbIndex];
         const bbPrevious = bbResult[bbIndex - 1];
-
         const currentClose = closes[i];
         const previousClose = closes[i - 1];
         
-        // Entry Condition from Pine Script: (close < lower) and (close[1] >= lower[1])
         const candleBrokeLower = (currentClose < bbCurrent.lower) && (previousClose >= bbPrevious.lower);
         
         if (candleBrokeLower && !position) {
-            const positionValue = equity * (positionPct / 100);
-            const size = positionValue / currentClose;
-            position = {
-                entryPrice: currentClose,
-                stopLoss: currentClose * (1 - slPct / 100.0),
-                size: size,
-            };
-            equity -= positionValue;
+            if (currentClose > 0) { // Prevent division by zero
+                const positionValue = equity * (positionPct / 100);
+                const size = positionValue / currentClose;
+                position = {
+                    entryPrice: currentClose,
+                    stopLoss: currentClose * (1 - slPct / 100.0),
+                    size: size,
+                };
+                equity -= positionValue;
+            }
         }
 
-        // Exit / SL Check
         if (position) {
             const exitHitUpper = highs[i] >= bbCurrent.upper;
             const slHit = lows[i] <= position.stopLoss;
@@ -2154,13 +2147,11 @@ const performStrategyBacktest = (klines) => {
                 if (drawdown > maxDrawdown) {
                     maxDrawdown = drawdown;
                 }
-
                 position = null;
             }
         }
     }
     
-    // Final metrics
     const netProfitPct = ((equity - initialEquity) / initialEquity) * 100;
     const totalTrades = trades.length;
     const winningTrades = trades.filter(t => t.pnl > 0);
@@ -2169,7 +2160,8 @@ const performStrategyBacktest = (klines) => {
     
     const grossProfit = winningTrades.reduce((sum, t) => sum + t.pnl, 0);
     const grossLoss = Math.abs(losingTrades.reduce((sum, t) => sum + t.pnl, 0));
-    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : 0;
+    // Use a large number for an "infinite" profit factor if there are no losses.
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 99999 : 0);
 
     return {
         netProfitPct,
@@ -2179,6 +2171,7 @@ const performStrategyBacktest = (klines) => {
         maxDrawdownPct: maxDrawdown * 100
     };
 };
+
 
 app.post('/api/backtest', requireAuth, async (req, res) => {
     const { symbols } = req.body;
