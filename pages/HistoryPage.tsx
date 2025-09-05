@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/mockApi';
-import { Trade, OrderSide, TradingMode, ScannedPair } from '../types';
+import { Trade, OrderSide, TradingMode, ScannedPair, ActiveProfile } from '../types';
 import Spinner from '../components/common/Spinner';
 import StatCard from '../components/common/StatCard';
 import { useAppContext } from '../contexts/AppContext';
@@ -9,7 +9,7 @@ import TradingViewWidget from '../components/common/TradingViewWidget';
 
 
 // --- TYPE DEFINITIONS ---
-type SortableKeys = 'symbol' | 'entry_time' | 'exit_time' | 'pnl' | 'pnl_pct' | 'entry_price' | 'exit_price' | 'stop_loss' | 'take_profit' | 'strategy_type';
+type SortableKeys = 'symbol' | 'entry_time' | 'exit_time' | 'pnl' | 'pnl_pct' | 'entry_price' | 'exit_price' | 'stop_loss' | 'take_profit' | 'strategy_type' | 'active_profile';
 type SortDirection = 'asc' | 'desc';
 
 interface SortConfig {
@@ -43,6 +43,20 @@ const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
         case 'COOLDOWN': return 'bg-blue-800 text-blue-200';
         default: return 'bg-gray-700 text-gray-200';
     }
+};
+
+const getProfileIcon = (profile: ActiveProfile | undefined) => {
+    if (!profile) return null;
+    const map: Record<ActiveProfile, { icon: string, title: string }> = {
+        'SNIPER': { icon: '🎯', title: 'Profil Sniper : Vise des gains élevés avec un trailing stop adaptatif.' },
+        'SCALPER': { icon: '🔪', title: 'Profil Scalpeur : Vise des gains rapides et fixes dans un marché en range.' },
+        'VOLATILITY_HUNTER': { icon: '⚡️', title: 'Profil Chasseur de Volatilité : Gestion agressive pour les marchés explosifs.' },
+        'IGNITION': { icon: '🚀', title: 'Profil Ignition : Gestion à haut risque pour les anomalies de marché.' },
+        'MANUAL': { icon: '✍️', title: 'Profil Manuel : Utilise les paramètres globaux actuellement sauvegardés.' },
+        'CUSTOM': { icon: '⚙️', title: 'Profil Personnalisé : Paramètres manuels non alignés sur un profil standard.' },
+    };
+    const item = map[profile];
+    return item ? <span title={item.title} className="text-xl">{item.icon}</span> : null;
 };
 
 // --- SUB-COMPONENTS ---
@@ -148,12 +162,13 @@ const HistoryPage: React.FC = () => {
         return;
     }
 
-    const headers = ['ID', 'Symbole', 'Stratégie', 'Côté', 'Mode', 'Heure d\'Entrée', 'Heure de Sortie', 'Prix d\'Entrée', 'Prix de Sortie', 'Stop Loss', 'Take Profit', 'Quantité', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h (EMA50)', 'RSI 1h Entrée'];
+    const headers = ['ID', 'Symbole', 'Stratégie', 'Profil', 'Côté', 'Mode', 'Heure d\'Entrée', 'Heure de Sortie', 'Prix d\'Entrée', 'Prix de Sortie', 'Stop Loss', 'Take Profit', 'Quantité', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h (EMA50)', 'RSI 1h Entrée'];
     
     const rows = filteredAndSortedTrades.map(trade => [
         trade.id,
         `"${trade.symbol}"`,
         trade.strategy_type || 'PRECISION',
+        trade.active_profile || 'N/A',
         trade.side,
         trade.mode,
         `"${trade.entry_time}"`,
@@ -195,7 +210,7 @@ const HistoryPage: React.FC = () => {
   }
 
   const { totalPnl, winningTrades, losingTrades, winRate } = summaryStats;
-  const totalColumns = 15;
+  const totalColumns = 16;
 
   return (
     <div className="space-y-6">
@@ -282,6 +297,7 @@ const HistoryPage: React.FC = () => {
                     <tr>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="strategy_type">Stratégie</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="active_profile">Profil</SortableHeader>
                         <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Côté</th>
                         <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Score Entrée</th>
                         <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Tendance 4h (EMA50)</th>
@@ -312,6 +328,9 @@ const HistoryPage: React.FC = () => {
                                     {trade.strategy_type === 'MOMENTUM' ? '🔥' : 
                                      trade.strategy_type === 'IGNITION' ? '🚀' : '🎯'}
                                 </span>
+                            </td>
+                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-center">
+                                {getProfileIcon(trade.active_profile)}
                             </td>
                             <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(trade.side)}`}>{trade.side}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm">

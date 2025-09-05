@@ -30,6 +30,18 @@ export interface FearAndGreed {
 }
 
 export type StrategyType = 'PRECISION' | 'MOMENTUM' | 'IGNITION';
+export type ActiveProfile = 'SNIPER' | 'SCALPER' | 'VOLATILITY_HUNTER' | 'MANUAL' | 'IGNITION' | 'CUSTOM';
+
+export interface TradeParams {
+    usePartialTp: boolean;
+    useAutoBreakeven: boolean;
+    useAdaptiveTs: boolean;
+    breakevenTriggerR: number;
+    partialTpTriggerPct: number;
+    partialTpSellQtyPct: number;
+    trailingStopTightenThresholdR: number;
+    trailingStopTightenMultiplierReduction: number;
+}
 
 export interface Trade {
   id: number;
@@ -64,7 +76,9 @@ export interface Trade {
   current_entry_count?: number;
   total_entries?: number;
   scaling_in_percents?: number[]; // For flexible scaling in
-  strategy_type?: StrategyType; // New: Which strategy triggered the trade
+  strategy_type?: StrategyType; 
+  active_profile?: ActiveProfile;
+  trade_params?: TradeParams;
 }
 
 export interface StrategyConditions {

@@ -21,23 +21,20 @@ export class TradingEngineService {
         if (!this.botState.isRunning) return;
 
         switch (pair.score) {
+            case 'STRONG BUY':
             case 'MOMENTUM_BUY':
             case 'IGNITION_DETECTED':
-                // Ces signaux sont valides immédiatement.
                 this.evaluateSignal(pair);
                 break;
             case 'PENDING_CONFIRMATION':
-                // Ce signal nécessite une confirmation sur 5m.
                 if (this.botState.settings.USE_MTF_VALIDATION) {
                     this.log('TRADE', `Signal de Précision pour ${pair.symbol} mis en attente de confirmation 5m.`);
                     this.botState.pendingConfirmation.set(pair.symbol, { pair, timestamp: Date.now() });
                 } else {
-                    // Si la validation MTF est désactivée, on traite le signal comme un STRONG BUY.
                     this.evaluateSignal({ ...pair, score: 'STRONG BUY' });
                 }
                 break;
             default:
-                // Ignorer les autres scores (HOLD, COMPRESSION, etc.)
                 break;
         }
     }
@@ -46,7 +43,7 @@ export class TradingEngineService {
         if (!this.botState.pendingConfirmation.has(symbol)) return;
 
         const { pair } = this.botState.pendingConfirmation.get(symbol);
-        this.botState.pendingConfirmation.delete(symbol); // Nettoyer, qu'il soit validé ou non.
+        this.botState.pendingConfirmation.delete(symbol); 
 
         const isBullishConfirmation = parseFloat(kline5m.c) > parseFloat(kline5m.o);
 
@@ -58,16 +55,59 @@ export class TradingEngineService {
         }
     }
 
+    _getTradeParameters(pair) {
+        const { settings } = this.botState;
+        const { strategy_type, adx_15m, atr_pct_15m } = pair;
+
+        let params = {
+            name: 'MANUAL',
+            riskRewardRatio: settings.RISK_REWARD_RATIO,
+            useAtrSl: settings.USE_ATR_STOP_LOSS,
+            atrMultiplier: settings.ATR_MULTIPLIER,
+            stopLossPct: settings.STOP_LOSS_PCT,
+            usePartialTp: settings.USE_PARTIAL_TAKE_PROFIT,
+            useAutoBreakeven: settings.USE_AUTO_BREAKEVEN,
+            useAdaptiveTs: settings.USE_ADAPTIVE_TRAILING_STOP,
+            breakevenTriggerR: settings.BREAKEVEN_TRIGGER_R,
+            partialTpTriggerPct: settings.PARTIAL_TP_TRIGGER_PCT,
+            partialTpSellQtyPct: settings.PARTIAL_TP_SELL_QTY_PCT,
+            trailingStopTightenThresholdR: settings.TRAILING_STOP_TIGHTEN_THRESHOLD_R,
+            trailingStopTightenMultiplierReduction: settings.TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION,
+        };
+
+        if (strategy_type === 'IGNITION') {
+            params.name = 'IGNITION';
+            return params;
+        }
+
+        if (settings.USE_DYNAMIC_PROFILE_SELECTOR) {
+            if (adx_15m < settings.ADX_THRESHOLD_RANGE) {
+                this.log('TRADE', `[${pair.symbol}] Marché en RANGE (ADX: ${adx_15m.toFixed(1)}). Application du profil SCALPEUR.`);
+                Object.assign(params, { name: 'SCALPER', riskRewardRatio: 0.75, useAtrSl: false, stopLossPct: 2.0, usePartialTp: false, useAutoBreakeven: false, useAdaptiveTs: false });
+            } else if (atr_pct_15m > settings.ATR_PCT_THRESHOLD_VOLATILE) {
+                this.log('TRADE', `[${pair.symbol}] Marché VOLATIL (ATR: ${atr_pct_15m.toFixed(2)}%). Application du profil CHASSEUR DE VOLATILITÉ.`);
+                Object.assign(params, { name: 'VOLATILITY_HUNTER', riskRewardRatio: 3.0, useAtrSl: true, atrMultiplier: 2.0, usePartialTp: false, useAutoBreakeven: true, useAdaptiveTs: true });
+            } else {
+                this.log('TRADE', `[${pair.symbol}] Marché en TENDANCE (ADX: ${adx_15m.toFixed(1)}). Application du profil SNIPER.`);
+                Object.assign(params, { name: 'SNIPER', riskRewardRatio: 5.0, useAtrSl: true, atrMultiplier: 1.5, usePartialTp: true, useAutoBreakeven: true, useAdaptiveTs: true });
+            }
+        } else {
+            this.log('TRADE', `[${pair.symbol}] Sélecteur de profil dynamique désactivé. Utilisation des paramètres manuels.`);
+        }
+        return params;
+    }
+
     evaluateSignal(pair) {
         const { settings, activePositions, recentlyLostSymbols } = this.botState;
         const { symbol, score, atr_15m, price } = pair;
 
-        if (score !== 'STRONG BUY' && score !== 'IGNITION_DETECTED' && score !== 'MOMENTUM_BUY') return;
+        if (!['STRONG BUY', 'IGNITION_DETECTED', 'MOMENTUM_BUY'].includes(score)) return;
         if (activePositions.length >= settings.MAX_OPEN_POSITIONS) return;
         if (activePositions.some(p => p.symbol === symbol)) return;
         if (recentlyLostSymbols.has(symbol) && Date.now() < recentlyLostSymbols.get(symbol)) return;
 
-        this.log('TRADE', `Signal confirmé [${score}] pour ${symbol}. Évaluation des conditions d'entrée.`);
+        const params = this._getTradeParameters(pair);
+        this.log('TRADE', `Signal [${score}] pour ${symbol} avec profil [${params.name}]. Évaluation des conditions d'entrée.`);
         
         let positionSizePct = settings.POSITION_SIZE_PCT;
         if (settings.USE_DYNAMIC_POSITION_SIZING && score === 'STRONG BUY') {
@@ -77,10 +117,10 @@ export class TradingEngineService {
         const quantity = positionSizeUSD / price;
 
         let stopLossPrice;
-        if (settings.USE_ATR_STOP_LOSS && atr_15m) {
-            stopLossPrice = price - (atr_15m * settings.ATR_MULTIPLIER);
+        if (params.useAtrSl && atr_15m) {
+            stopLossPrice = price - (atr_15m * params.atrMultiplier);
         } else {
-            stopLossPrice = price * (1 - settings.STOP_LOSS_PCT / 100);
+            stopLossPrice = price * (1 - params.stopLossPct / 100);
         }
 
         const riskPerUnit = price - stopLossPrice;
@@ -89,12 +129,14 @@ export class TradingEngineService {
             return;
         }
 
-        const takeProfitPrice = price + (riskPerUnit * settings.RISK_REWARD_RATIO);
+        const takeProfitPrice = (pair.strategy_type === 'IGNITION')
+            ? price + (riskPerUnit * settings.RISK_REWARD_RATIO) // Placeholder, TSL takes over
+            : price + (riskPerUnit * params.riskRewardRatio);
         
-        this.openPosition(pair, quantity, stopLossPrice, takeProfitPrice);
+        this.openPosition(pair, quantity, stopLossPrice, takeProfitPrice, params);
     }
     
-    async openPosition(pair, quantity, stopLoss, takeProfit) {
+    async openPosition(pair, quantity, stopLoss, takeProfit, tradeParams) {
         const { symbol, price, score, strategy_type } = pair;
         const newTrade = {
             id: this.botState.tradeIdCounter++,
@@ -114,18 +156,15 @@ export class TradingEngineService {
             entry_snapshot: pair,
             highest_price_since_entry: price,
             total_cost_usd: price * quantity,
-            strategy_type
+            strategy_type,
+            active_profile: tradeParams.name,
+            trade_params: tradeParams
         };
 
         if (this.botState.tradingMode === 'REAL_LIVE' && this.apiClient) {
             try {
                 this.log('TRADE', `Tentative d'ouverture de position RÉELLE pour ${symbol}...`);
-                const orderParams = {
-                    symbol,
-                    side: 'BUY',
-                    type: 'MARKET',
-                    quantity: this.formatQuantity(symbol, quantity)
-                };
+                const orderParams = { symbol, side: 'BUY', type: 'MARKET', quantity: this.formatQuantity(symbol, quantity) };
                 const orderResult = await this.apiClient.createOrder(orderParams);
                 this.log('TRADE', `Ordre Binance réussi : ${JSON.stringify(orderResult)}`);
                 newTrade.entry_price = parseFloat(orderResult.fills[0].price);
@@ -138,7 +177,7 @@ export class TradingEngineService {
 
         this.botState.balance -= newTrade.entry_price * newTrade.quantity;
         this.botState.activePositions.push(newTrade);
-        this.log('TRADE', `SUCCÈS: Position ${newTrade.mode} ouverte pour ${symbol}. Qté: ${newTrade.quantity}, Entrée: ${newTrade.entry_price}, Strat: ${strategy_type}`);
+        this.log('TRADE', `SUCCÈS: Position ${newTrade.mode} ouverte pour ${symbol}. Qté: ${newTrade.quantity}, Entrée: ${newTrade.entry_price}, Strat: ${strategy_type}, Profil: ${tradeParams.name}`);
         await this.saveData('state');
         this.broadcast({ type: 'POSITIONS_UPDATED' });
     }
@@ -156,23 +195,21 @@ export class TradingEngineService {
 
         let exitReason = null;
         let exitPrice = currentPrice;
+
+        const params = position.trade_params || {};
         
         if (position.strategy_type === 'IGNITION' && this.botState.settings.USE_IGNITION_TRAILING_STOP) {
             const trailingStopPct = this.botState.settings.IGNITION_TRAILING_STOP_PCT / 100;
             const newStopLoss = position.highest_price_since_entry * (1 - trailingStopPct);
             if (newStopLoss > position.stop_loss) position.stop_loss = newStopLoss;
-            if (currentPrice <= position.stop_loss) {
-                exitReason = 'Stop Suiveur Ignition atteint';
-                exitPrice = position.stop_loss;
-            }
-        } else {
-            if (currentPrice <= position.stop_loss) {
-                exitReason = 'Stop Loss atteint';
-                exitPrice = position.stop_loss;
-            } else if (currentPrice >= position.take_profit) {
-                exitReason = 'Take Profit atteint';
-                exitPrice = position.take_profit;
-            }
+        }
+        
+        if (currentPrice <= position.stop_loss) {
+            exitReason = 'Stop Loss atteint';
+            exitPrice = position.stop_loss;
+        } else if (position.strategy_type !== 'IGNITION' && currentPrice >= position.take_profit) {
+            exitReason = 'Take Profit atteint';
+            exitPrice = position.take_profit;
         }
         
         if (exitReason) {
@@ -191,9 +228,9 @@ export class TradingEngineService {
         closedTrade.exit_time = new Date().toISOString();
         closedTrade.status = 'CLOSED';
         
-        const pnl = (exitPrice - closedTrade.entry_price) * closedTrade.quantity;
+        const pnl = (exitPrice - closedTrade.average_entry_price) * closedTrade.quantity;
         closedTrade.pnl = pnl;
-        closedTrade.pnl_pct = (pnl / (closedTrade.entry_price * closedTrade.quantity)) * 100;
+        closedTrade.pnl_pct = (pnl / closedTrade.total_cost_usd) * 100;
         
         if (this.botState.tradingMode === 'REAL_LIVE' && this.apiClient) {
              try {
@@ -210,7 +247,7 @@ export class TradingEngineService {
             }
         }
         
-        this.botState.balance += (closedTrade.entry_price * closedTrade.quantity) + pnl;
+        this.botState.balance += closedTrade.total_cost_usd + pnl;
         this.botState.tradeHistory.push(closedTrade);
 
         if (pnl < 0) {

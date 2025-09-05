@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { api } from '../services/mockApi';
-import { BotStatus, Trade, PerformanceStats, OrderSide, TradingMode, BotSettings, OrderStatus, ScannedPair } from '../types';
+import { BotStatus, Trade, PerformanceStats, OrderSide, TradingMode, BotSettings, OrderStatus, ScannedPair, ActiveProfile } from '../types';
 import StatCard from '../components/common/StatCard';
 import Spinner from '../components/common/Spinner';
 import Modal from '../components/common/Modal';
@@ -31,6 +31,20 @@ const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
     }
 };
 
+const getProfileIcon = (profile: ActiveProfile | undefined) => {
+    if (!profile) return null;
+    const map: Record<ActiveProfile, { icon: string, title: string }> = {
+        'SNIPER': { icon: '🎯', title: 'Profil Sniper : Vise des gains élevés avec un trailing stop adaptatif.' },
+        'SCALPER': { icon: '🔪', title: 'Profil Scalpeur : Vise des gains rapides et fixes dans un marché en range.' },
+        'VOLATILITY_HUNTER': { icon: '⚡️', title: 'Profil Chasseur de Volatilité : Gestion agressive pour les marchés explosifs.' },
+        'IGNITION': { icon: '🚀', title: 'Profil Ignition : Gestion à haut risque pour les anomalies de marché.' },
+        'MANUAL': { icon: '✍️', title: 'Profil Manuel : Utilise les paramètres globaux actuellement sauvegardés.' },
+        'CUSTOM': { icon: '⚙️', title: 'Profil Personnalisé : Paramètres manuels non alignés sur un profil standard.' },
+    };
+    const item = map[profile];
+    return item ? <span title={item.title} className="text-xl">{item.icon}</span> : null;
+};
+
 const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade: Trade) => void, onSymbolClick: (symbol: string) => void, settings: BotSettings | null }> = ({ positions, onManualClose, onSymbolClick, settings }) => {
     const getSideClass = (side: OrderSide) => side === OrderSide.BUY ? 'text-green-400' : 'text-red-400';
     const getPnlClass = (pnl: number = 0) => {
@@ -48,7 +62,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f]">
                     <tr>
-                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h (EMA50)', 'RSI 1h Entrée'].map(header => (
+                        {['Symbole', 'Profil', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h (EMA50)', 'RSI 1h Entrée'].map(header => (
                             <th key={header} scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">{header}</th>
                         ))}
                         <th scope="col" className="relative px-3 lg:px-6 py-3">
@@ -78,6 +92,9 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                             </span>
                                         )}
                                     </div>
+                                </td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-center">
+                                    {getProfileIcon(pos.active_profile)}
                                 </td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(pos.side)}`}>{pos.side}</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.average_entry_price)}</td>
