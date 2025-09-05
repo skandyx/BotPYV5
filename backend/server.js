@@ -333,7 +333,7 @@ const saveData = async (type) => {
 };
 
 const scanner = new ScannerService(log, KLINE_DATA_DIR);
-const realtimeAnalyzer = new RealtimeAnalyzerService(log);
+const realtimeAnalyzer = new RealtimeAnalyzerService(log, () => botState);
 const tradingEngine = new TradingEngineService(botState, log, broadcast, saveData, binanceApiClient, symbolRules);
 let scannerInterval = null;
 
@@ -354,27 +354,61 @@ const runScannerCycle = async () => {
 
 // --- Binance WebSocket ---
 let binanceWs = null;
+let isBinanceWsConnecting = false;
+let isManualBinanceWsDisconnect = false;
+let reconnectBinanceWsTimeout = null;
+
 const connectToBinanceStreams = () => {
-    if (binanceWs) binanceWs.close();
-    
-    const streams = ['!ticker@arr']; // All tickers for price updates
+    if (binanceWs && binanceWs.readyState === WebSocket.OPEN) {
+        log('BINANCE_WS', 'Connection attempt skipped: already connected.');
+        return;
+    }
+    if (isBinanceWsConnecting) {
+        log('BINANCE_WS', 'Connection attempt skipped: connection in progress.');
+        return;
+    }
+
+    isBinanceWsConnecting = true;
+    isManualBinanceWsDisconnect = false;
+    if (reconnectBinanceWsTimeout) clearTimeout(reconnectBinanceWsTimeout);
+
+    const streams = ['!ticker@arr'];
     const klineStreams = ['1m', '5m', '15m'].map(tf => `@kline_${tf}`);
     const allStreams = streams.concat(botState.scannerCache.map(p => p.symbol.toLowerCase()).flatMap(s => klineStreams.map(k => `${s}${k}`)));
-    
+
     if (allStreams.length <= 1) {
         log('WARN', 'No symbols in scanner cache, connecting to tickers only.');
     }
-    
+
     const url = `wss://stream.binance.com:9443/stream?streams=${allStreams.join('/')}`;
     binanceWs = new WebSocket(url);
-    
-    binanceWs.on('open', () => log('BINANCE_WS', `Connected to ${allStreams.length} streams.`));
-    binanceWs.on('message', handleBinanceMessage);
-    binanceWs.on('close', () => {
-        log('WARN', 'Binance WebSocket disconnected. Reconnecting in 5s...');
-        setTimeout(connectToBinanceStreams, 5000);
+    log('BINANCE_WS', 'Connecting to Binance streams...');
+
+    binanceWs.on('open', () => {
+        isBinanceWsConnecting = false;
+        log('BINANCE_WS', `Connected to ${allStreams.length} streams.`);
     });
-    binanceWs.on('error', (err) => log('ERROR', `Binance WebSocket error: ${err.message}`));
+
+    binanceWs.on('message', handleBinanceMessage);
+
+    binanceWs.on('close', () => {
+        binanceWs = null;
+        isBinanceWsConnecting = false;
+        if (!isManualBinanceWsDisconnect) {
+            log('WARN', 'Binance WebSocket disconnected. Reconnecting in 5s...');
+            reconnectBinanceWsTimeout = setTimeout(connectToBinanceStreams, 5000);
+        } else {
+            log('BINANCE_WS', 'Binance WebSocket disconnected manually.');
+        }
+    });
+
+    binanceWs.on('error', (err) => {
+        log('ERROR', `Binance WebSocket error: ${err.message}`);
+        isBinanceWsConnecting = false;
+        if (binanceWs) {
+            binanceWs.terminate(); 
+        }
+    });
 };
 
 const handleBinanceMessage = (data) => {
@@ -409,7 +443,15 @@ const handleBinanceMessage = (data) => {
 
 const updateBinanceSubscriptions = () => {
     log('BINANCE_WS', 'Updating Binance stream subscriptions...');
-    connectToBinanceStreams(); // Reconnect with new list
+    if (isBinanceWsConnecting) {
+        log('BINANCE_WS', 'Subscription update deferred: connection in progress.');
+        return;
+    }
+    if (binanceWs) {
+        isManualBinanceWsDisconnect = true;
+        binanceWs.close();
+    }
+    setTimeout(connectToBinanceStreams, 500); 
 };
 
 
