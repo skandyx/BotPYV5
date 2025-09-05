@@ -1,5 +1,8 @@
 
 import { RSI, ADX, ATR, BollingerBands, EMA, OBV } from 'technicalindicators';
+import { ScannerService } from './ScannerService.js'; // Assuming it's in the same directory
+
+const scanner = new ScannerService(() => {}); // Dummy log for now
 
 // Simple implementation for CVD
 function calculateCVD(klines) {
@@ -13,8 +16,9 @@ function calculateCVD(klines) {
 }
 
 export class RealtimeAnalyzerService {
-    constructor(log) {
+    constructor(log, getBotState) {
         this.log = log;
+        this.getBotState = getBotState; // Function to get current bot state
         this.settings = {};
         this.klineData = new Map(); // Stores klines for each symbol and timeframe
     }
@@ -73,7 +77,7 @@ export class RealtimeAnalyzerService {
                 this.fetchKlines(symbol, '4h'),
             ]);
 
-            if (klines15m.length < 50 || klines1h.length < 21 || klines4h.length < 51) {
+            if (klines15m.length < 50 || klines1h.length < 21 || klines4h.length < 51 || klines1m.length < 21) {
                 return null;
             }
 
@@ -95,7 +99,7 @@ export class RealtimeAnalyzerService {
                 ...analysis4h,
             };
 
-            return this.evaluateStrategy(combined, analysis1m, analysis5m);
+            return this.evaluateStrategy(combined, analysis1m, analysis5m, klines1m);
 
         } catch (e) {
             this.log('ERROR', `Full analysis for ${symbol} failed: ${e.message}`);
@@ -150,12 +154,12 @@ export class RealtimeAnalyzerService {
         return result;
     }
     
-    evaluateStrategy(pair, analysis1m, analysis5m) {
+    evaluateStrategy(pair, analysis1m, analysis5m, klines1m) {
         let conditions = { trend: false, squeeze: false, breakout: false, volume: false, safety: false, obv: false, rsi_mtf: false, cvd_5m_trending_up: false };
         let score = 'HOLD';
         let score_value = 50;
         let metCount = 0;
-        let strategy_type = 'PRECISION';
+        let strategy_type = 'PRECISION'; // Default
 
         // Shared Safety Conditions
         conditions.safety = this.settings.USE_RSI_SAFETY_FILTER ? pair.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD : true;
@@ -170,8 +174,7 @@ export class RealtimeAnalyzerService {
             score = 'COMPRESSION';
             score_value = 70;
             
-            // Micro-trigger checks
-            const lastCandle1m = this.klineData.get(`${pair.symbol}_1m`)?.slice(-1)[0];
+            const lastCandle1m = klines1m.slice(-1)[0];
             if(lastCandle1m) {
                 conditions.breakout = lastCandle1m.close > analysis1m.ema9_1m;
                 conditions.volume = this.settings.USE_VOLUME_CONFIRMATION ? lastCandle1m.volume > (analysis1m.volume_avg_1m * 1.5) : true;
@@ -187,18 +190,19 @@ export class RealtimeAnalyzerService {
              pair.is_on_hotlist = false;
         }
         
-        // Ignition Strategy
-        if(this.settings.USE_IGNITION_STRATEGY) {
-            const lastCandle1m = this.klineData.get(`${pair.symbol}_1m`)?.slice(-1)[0];
-            const prevCandle1m = this.klineData.get(`${pair.symbol}_1m`)?.slice(-2)[0];
-            if(lastCandle1m && prevCandle1m) {
-                const priceSpike = ((lastCandle1m.close - prevCandle1m.close) / prevCandle1m.close) * 100;
-                const volumeSpike = lastCandle1m.volume > (analysis1m.volume_avg_1m * this.settings.IGNITION_VOLUME_MULTIPLE);
+        // Ignition Strategy - runs in parallel and can override the score
+        if(this.settings.USE_IGNITION_STRATEGY && conditions.trend) { // Still respect master trend
+            const lastCandle1m = klines1m.slice(-1)[0];
+            const prevCandle1m = klines1m.slice(-2)[0];
+            if(lastCandle1m && prevCandle1m && analysis1m.volume_avg_1m > 0) {
+                const priceSpikePct = ((lastCandle1m.close - prevCandle1m.close) / prevCandle1m.close) * 100;
+                const volumeMultiple = lastCandle1m.volume / analysis1m.volume_avg_1m;
 
-                if(priceSpike >= this.settings.IGNITION_PRICE_SPIKE_PCT && volumeSpike) {
+                if(priceSpikePct >= this.settings.IGNITION_PRICE_SPIKE_PCT && volumeMultiple >= this.settings.IGNITION_VOLUME_MULTIPLE) {
                     score = 'IGNITION_DETECTED';
-                    score_value = 100;
+                    score_value = 100; // Highest priority
                     strategy_type = 'IGNITION';
+                    this.log('SCANNER', `🚀 IGNITION DETECTED for ${pair.symbol}: Price Spike: ${priceSpikePct.toFixed(2)}%, Volume x${volumeMultiple.toFixed(1)}`);
                 }
             }
         }
@@ -215,7 +219,10 @@ export class RealtimeAnalyzerService {
 
     async fetchKlines(symbol, interval, limit = 201) {
         const key = `${symbol}_${interval}`;
-        if (this.klineData.has(key)) return this.klineData.get(key);
+        const cachedKlines = this.klineData.get(key);
+        if (cachedKlines && cachedKlines.length >= limit) {
+             return cachedKlines;
+        }
         
         const klines = await scanner.fetchKlinesFromBinance(symbol, interval, 0, limit);
         const formattedKlines = klines.map(k => ({
@@ -228,10 +235,17 @@ export class RealtimeAnalyzerService {
     }
 
     async getBaseData(symbol) {
-        const price = botState.priceCache.get(symbol)?.price || 0;
-        const response = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`);
-        const data = await response.json();
-        return { price, volume: parseFloat(data.quoteVolume) };
+        const { priceCache } = this.getBotState();
+        const price = priceCache.get(symbol)?.price || 0;
+        // This is inefficient, should be cached. For now, it works.
+        // A better approach would be to get this from the initial 24hr ticker call.
+        try {
+            const response = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`);
+            const data = await response.json();
+            return { price, volume: parseFloat(data.quoteVolume) };
+        } catch(e) {
+            return { price, volume: 0 };
+        }
     }
     
     getObvSlope(klines) {
@@ -242,7 +256,7 @@ export class RealtimeAnalyzerService {
     }
     
     getCvdSlope(klines) {
-        if (klines.length < 2) return 0;
+        if (klines.length < 10) return 0;
         const recentKlines = klines.slice(-5);
         const prevKlines = klines.slice(-10, -5);
         return calculateCVD(recentKlines) - calculateCVD(prevKlines);

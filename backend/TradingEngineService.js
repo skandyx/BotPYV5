@@ -1,4 +1,5 @@
 
+
 export class TradingEngineService {
     constructor(botState, log, broadcast, saveData, binanceApiClient, symbolRules) {
         this.botState = botState;
