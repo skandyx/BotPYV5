@@ -346,70 +346,90 @@ const runScannerCycle = async () => {
         );
         botState.scannerCache = hydratedPairs.filter(Boolean);
         log('SCANNER', `Scanner cache updated with ${botState.scannerCache.length} pairs.`);
-        updateBinanceSubscriptions();
+        updateBinanceSubscriptions(botState.scannerCache.map(p => p.symbol));
     } catch (error) {
         log('ERROR', `Scanner cycle failed: ${error.message}`);
     }
 };
 
-// --- Binance WebSocket ---
+// --- [REFACTORED] Binance WebSocket ---
 let binanceWs = null;
-let isBinanceWsConnecting = false;
-let isManualBinanceWsDisconnect = false;
-let reconnectBinanceWsTimeout = null;
+let reconnectBinanceTimer = null;
+let isUpdatingSubscriptions = false;
+let currentSubscribedSymbols = new Set();
 
-const connectToBinanceStreams = () => {
-    if (binanceWs && binanceWs.readyState === WebSocket.OPEN) {
-        log('BINANCE_WS', 'Connection attempt skipped: already connected.');
-        return;
-    }
-    if (isBinanceWsConnecting) {
-        log('BINANCE_WS', 'Connection attempt skipped: connection in progress.');
-        return;
-    }
-
-    isBinanceWsConnecting = true;
-    isManualBinanceWsDisconnect = false;
-    if (reconnectBinanceWsTimeout) clearTimeout(reconnectBinanceWsTimeout);
-
+function connectToBinance(symbolsToSubscribe) {
+    if (reconnectBinanceTimer) clearTimeout(reconnectBinanceTimer);
+    
     const streams = ['!ticker@arr'];
     const klineStreams = ['1m', '5m', '15m'].map(tf => `@kline_${tf}`);
-    const allStreams = streams.concat(botState.scannerCache.map(p => p.symbol.toLowerCase()).flatMap(s => klineStreams.map(k => `${s}${k}`)));
+    const symbolStreams = Array.from(symbolsToSubscribe).flatMap(s => klineStreams.map(k => `${s.toLowerCase()}${k}`));
+    const allStreams = streams.concat(symbolStreams);
 
     if (allStreams.length <= 1) {
         log('WARN', 'No symbols in scanner cache, connecting to tickers only.');
     }
-
+    
     const url = `wss://stream.binance.com:9443/stream?streams=${allStreams.join('/')}`;
     binanceWs = new WebSocket(url);
-    log('BINANCE_WS', 'Connecting to Binance streams...');
+    log('BINANCE_WS', `Connecting to ${allStreams.length} streams...`);
 
     binanceWs.on('open', () => {
-        isBinanceWsConnecting = false;
-        log('BINANCE_WS', `Connected to ${allStreams.length} streams.`);
+        log('BINANCE_WS', 'Connection to Binance streams established.');
+        currentSubscribedSymbols = new Set(symbolsToSubscribe);
     });
 
     binanceWs.on('message', handleBinanceMessage);
 
     binanceWs.on('close', () => {
+        log('WARN', 'Binance WebSocket disconnected. Reconnecting in 5 seconds...');
         binanceWs = null;
-        isBinanceWsConnecting = false;
-        if (!isManualBinanceWsDisconnect) {
-            log('WARN', 'Binance WebSocket disconnected. Reconnecting in 5s...');
-            reconnectBinanceWsTimeout = setTimeout(connectToBinanceStreams, 5000);
-        } else {
-            log('BINANCE_WS', 'Binance WebSocket disconnected manually.');
-        }
+        reconnectBinanceTimer = setTimeout(() => connectToBinance(currentSubscribedSymbols), 5000);
     });
 
     binanceWs.on('error', (err) => {
-        log('ERROR', `Binance WebSocket error: ${err.message}`);
-        isBinanceWsConnecting = false;
-        if (binanceWs) {
-            binanceWs.terminate(); 
-        }
+        log('ERROR', `Binance WebSocket error: ${err.message}. Closing socket.`);
+        if (binanceWs) binanceWs.terminate();
     });
-};
+}
+
+async function updateBinanceSubscriptions(newSymbols) {
+    if (isUpdatingSubscriptions) {
+        log('BINANCE_WS', 'Subscription update already in progress. Skipping.');
+        return;
+    }
+    isUpdatingSubscriptions = true;
+
+    const newSymbolsSet = new Set(newSymbols);
+    const areSame = newSymbolsSet.size === currentSubscribedSymbols.size && [...newSymbolsSet].every(symbol => currentSubscribedSymbols.has(symbol));
+    
+    if (areSame) {
+        log('BINANCE_WS', 'No change in subscriptions needed.');
+        isUpdatingSubscriptions = false;
+        return;
+    }
+
+    log('BINANCE_WS', 'Subscription list has changed. Reconnecting with new streams...');
+    
+    if (binanceWs) {
+        // Cleanly close the existing connection and let the 'close' handler manage reconnection with the new symbols
+        if (reconnectBinanceTimer) clearTimeout(reconnectBinanceTimer);
+        currentSubscribedSymbols = newSymbolsSet;
+        
+        binanceWs.onclose = () => { // Override the default close handler
+             log('BINANCE_WS', 'Old connection closed. Establishing new connection.');
+             binanceWs = null;
+             connectToBinance(currentSubscribedSymbols); // Connect with the updated list
+        };
+        binanceWs.terminate();
+    } else {
+        // No active connection, just connect with the new list
+        connectToBinance(newSymbolsSet);
+    }
+    
+    // Use a timeout to reset the lock, allowing for future updates
+    setTimeout(() => { isUpdatingSubscriptions = false; }, 2000); 
+}
 
 const handleBinanceMessage = (data) => {
     try {
@@ -431,29 +451,20 @@ const handleBinanceMessage = (data) => {
                         else botState.scannerCache.push(updatedPair);
                         
                         broadcast({ type: 'SCANNER_UPDATE', payload: updatedPair });
-                        tradingEngine.evaluateSignal(updatedPair);
+                        // Let the trading engine decide what to do with the new analysis
+                        tradingEngine.processAnalyzedPair(updatedPair);
                     }
                 });
+                // If a 5m kline closes, check for pending confirmations
+                if (kline.i === '5m') {
+                    tradingEngine.checkConfirmationsOn5mClose(symbol, kline);
+                }
             }
         }
     } catch(e) {
         log('ERROR', `Failed to process Binance WS message: ${e.message}`);
     }
 };
-
-const updateBinanceSubscriptions = () => {
-    log('BINANCE_WS', 'Updating Binance stream subscriptions...');
-    if (isBinanceWsConnecting) {
-        log('BINANCE_WS', 'Subscription update deferred: connection in progress.');
-        return;
-    }
-    if (binanceWs) {
-        isManualBinanceWsDisconnect = true;
-        binanceWs.close();
-    }
-    setTimeout(connectToBinanceStreams, 500); 
-};
-
 
 // --- Backtesting Engine ---
 function performStrategyBacktest(klines) {
@@ -713,8 +724,7 @@ if (process.env.NODE_ENV === 'production') {
 const main = async () => {
     await loadData();
     scannerInterval = setInterval(runScannerCycle, botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS * 1000);
-    runScannerCycle();
-    connectToBinanceStreams();
+    runScannerCycle(); // Initial run
 
     setInterval(async () => {
         try {

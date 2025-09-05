@@ -435,8 +435,16 @@ const SettingsPage: React.FC = () => {
                         </div>
                     </div>
                      {/* Experimental Strategies */}
-                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
-                        <h3 className="text-lg font-semibold text-white mb-4">Stratégies Expérimentales</h3>
+                    <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-6 shadow-lg">
+                        <div className="flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-amber-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <h3 className="text-lg font-semibold text-amber-300">Stratégies Expérimentales (Haut Risque)</h3>
+                        </div>
+                        <p className="text-sm text-amber-400/80 mt-2 mb-4">
+                            Ces stratégies contournent de nombreux filtres de sécurité pour capturer des mouvements de marché anormaux. Utilisez-les avec une extrême prudence.
+                        </p>
                         <div className="space-y-4">
                             <ToggleField id="USE_IGNITION_STRATEGY" label="Activer la Stratégie d'Ignition 🚀" />
                             <div className={`space-y-4 transition-opacity ${settings.USE_IGNITION_STRATEGY ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
@@ -444,7 +452,7 @@ const SettingsPage: React.FC = () => {
                                     <InputField id="IGNITION_PRICE_SPIKE_PCT" label="Seuil de Hausse de Prix (%)" step="0.5" />
                                     <InputField id="IGNITION_VOLUME_MULTIPLE" label="Multiplicateur de Volume (x)" step="1" />
                                 </div>
-                                <hr className="border-gray-700"/>
+                                <hr className="border-gray-700/50"/>
                                 <ToggleField id="USE_IGNITION_TRAILING_STOP" label="Activer le Stop Loss Suiveur Éclair ⚡" />
                                 <div className={`transition-opacity ${settings.USE_IGNITION_TRAILING_STOP ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                      <InputField id="IGNITION_TRAILING_STOP_PCT" label="Pourcentage du Suiveur Éclair" step="0.1" children={<span className="text-gray-400 text-sm">%</span>}/>
