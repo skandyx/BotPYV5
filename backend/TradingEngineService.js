@@ -1,5 +1,6 @@
 
 
+
 export class TradingEngineService {
     constructor(botState, log, broadcast, saveData, binanceApiClient, symbolRules) {
         this.botState = botState;
@@ -120,17 +121,35 @@ export class TradingEngineService {
 
         let exitReason = null;
         let exitPrice = currentPrice;
+        
+        // --- Specialized Logic for Ignition Strategy ---
+        if (position.strategy_type === 'IGNITION' && this.botState.settings.USE_IGNITION_TRAILING_STOP) {
+            const trailingStopPct = this.botState.settings.IGNITION_TRAILING_STOP_PCT / 100;
+            const newStopLoss = position.highest_price_since_entry * (1 - trailingStopPct);
 
-        if (currentPrice <= position.stop_loss) {
-            exitReason = 'Stop Loss hit';
-            exitPrice = position.stop_loss;
-        } else if (currentPrice >= position.take_profit) {
-            exitReason = 'Take Profit hit';
-            exitPrice = position.take_profit;
+            // The new stop loss should only move up, never down.
+            if (newStopLoss > position.stop_loss) {
+                position.stop_loss = newStopLoss;
+            }
+
+            // Check if the aggressive trailing stop was hit
+            if (currentPrice <= position.stop_loss) {
+                exitReason = 'Ignition Trailing Stop hit';
+                exitPrice = position.stop_loss;
+            }
+            // For ignition trades with trailing stop, we IGNORE the original take profit to let it run
+            
+        } else {
+            // --- Standard Logic for Precision/Momentum Strategies ---
+            if (currentPrice <= position.stop_loss) {
+                exitReason = 'Stop Loss hit';
+                exitPrice = position.stop_loss;
+            } else if (currentPrice >= position.take_profit) {
+                exitReason = 'Take Profit hit';
+                exitPrice = position.take_profit;
+            }
         }
         
-        // Add Trailing Stop Loss logic here later
-
         if (exitReason) {
             this.log('TRADE', `${exitReason} for ${position.symbol} at price ${exitPrice}.`);
             this.closePosition(position, exitPrice);

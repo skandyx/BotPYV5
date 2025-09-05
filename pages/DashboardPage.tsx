@@ -31,7 +31,7 @@ const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
     }
 };
 
-const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade: Trade) => void, onSymbolClick: (symbol: string) => void }> = ({ positions, onManualClose, onSymbolClick }) => {
+const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade: Trade) => void, onSymbolClick: (symbol: string) => void, settings: BotSettings | null }> = ({ positions, onManualClose, onSymbolClick, settings }) => {
     const getSideClass = (side: OrderSide) => side === OrderSide.BUY ? 'text-green-400' : 'text-red-400';
     const getPnlClass = (pnl: number = 0) => {
         if (pnl > 0) return 'text-green-400';
@@ -60,6 +60,8 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                     {positions.map(pos => {
                         const priceClass = pos.priceDirection === 'up' ? 'text-green-400' : (pos.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
                         const snapshot = pos.entry_snapshot;
+                        const isIgnitionTrailingActive = pos.strategy_type === 'IGNITION' && settings?.USE_IGNITION_TRAILING_STOP;
+
                         return (
                             <tr 
                                 key={pos.id}
@@ -68,7 +70,8 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                             >
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
                                     <div className="flex items-center">
-                                        <span>{pos.symbol}</span>
+                                        <span className="mr-2">{pos.symbol}</span>
+                                        {pos.strategy_type === 'IGNITION' && <span title="Trade Ignition">🚀</span>}
                                         {pos.is_scaling_in && (
                                             <span className="ml-2 text-xs font-semibold bg-sky-700 text-sky-200 px-2 py-0.5 rounded-full animate-pulse">
                                                 Scaling In...
@@ -80,8 +83,13 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.average_entry_price)}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pos.current_price || pos.entry_price)}</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pos.quantity.toFixed(4)}</td>
-                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.stop_loss)}</td>
-                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.take_profit)}</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                     <div className="flex items-center">
+                                        <span>${formatPrice(pos.stop_loss)}</span>
+                                        {isIgnitionTrailingActive && <span className="ml-2 text-lg" title="Stop Loss Suiveur Éclair Actif">⚡</span>}
+                                    </div>
+                                </td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${isIgnitionTrailingActive ? '∞' : formatPrice(pos.take_profit)}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl)}`}>${pos.pnl?.toFixed(2) || '0.00'}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl_pct)}`}>{pos.pnl_pct?.toFixed(2) || 'N/A'}%</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm">
@@ -313,7 +321,7 @@ const DashboardPage: React.FC = () => {
 
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">
                 <h3 className="text-lg font-semibold text-white mb-4">Positions Actives</h3>
-                <ActivePositionsTable positions={positions} onManualClose={openCloseModal} onSymbolClick={setSelectedSymbol} />
+                <ActivePositionsTable positions={positions} onManualClose={openCloseModal} onSymbolClick={setSelectedSymbol} settings={settings} />
             </div>
             
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">

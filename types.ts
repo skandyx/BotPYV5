@@ -249,4 +249,6 @@ export interface BotSettings {
     USE_IGNITION_STRATEGY: boolean;
     IGNITION_PRICE_SPIKE_PCT: number;
     IGNITION_VOLUME_MULTIPLE: number;
+    USE_IGNITION_TRAILING_STOP: boolean;
+    IGNITION_TRAILING_STOP_PCT: number;
 }
