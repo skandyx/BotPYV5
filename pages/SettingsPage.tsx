@@ -145,7 +145,10 @@ const tooltips: Record<string, string> = {
     RSI_15M_OVERBOUGHT_THRESHOLD: "Le seuil RSI sur 15 minutes au-delà duquel un signal d'achat sera ignoré.",
     USE_WICK_DETECTION_FILTER: "Filtre Anti-Piège : rejette les signaux d'entrée si la bougie de déclenchement a une mèche supérieure anormalement grande, indiquant un rejet du prix.",
     MAX_UPPER_WICK_PCT: "Le pourcentage maximum de la mèche supérieure par rapport à la taille totale de la bougie. Au-delà de ce seuil, le signal est ignoré.",
-    USE_OBV_5M_VALIDATION: "Confirmation de Volume Multi-Échelles : Exige que la tendance de l'OBV soit également haussière sur l'unité de temps de 5 minutes après la confirmation, pour éviter les divergences."
+    USE_OBV_5M_VALIDATION: "Confirmation de Volume Multi-Échelles : Exige que la tendance de l'OBV soit également haussière sur l'unité de temps de 5 minutes après la confirmation, pour éviter les divergences.",
+    USE_IGNITION_STRATEGY: "STRATÉGIE À HAUT RISQUE : Active le mode 'Ignition' 🚀, qui recherche des explosions soudaines de prix et de volume sur 1 minute, en contournant la plupart des filtres de sécurité.",
+    IGNITION_PRICE_SPIKE_PCT: "Pour la stratégie Ignition, le pourcentage minimum d'augmentation du prix sur une bougie de 1 minute pour déclencher un signal.",
+    IGNITION_VOLUME_MULTIPLE: "Pour la stratégie Ignition, le multiplicateur de volume par rapport à la moyenne récente requis sur une bougie de 1 minute pour déclencher un signal (ex: 10 pour 10x)."
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -427,6 +430,17 @@ const SettingsPage: React.FC = () => {
                              <InputField id="RISK_REWARD_RATIO" label="Ratio Risque/Récompense" step="0.1" children={<span className="text-gray-400 text-sm">:1</span>}/>
                              <InputField id="INITIAL_VIRTUAL_BALANCE" label="Solde Virtuel Initial" step="100" children={<span className="text-gray-400 text-sm">$</span>}/>
                              <InputField id="SLIPPAGE_PCT" label="Slippage Simulé (%)" step="0.01" children={<span className="text-gray-400 text-sm">%</span>}/>
+                        </div>
+                    </div>
+                     {/* Experimental Strategies */}
+                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4">Stratégies Expérimentales</h3>
+                        <div className="space-y-4">
+                            <ToggleField id="USE_IGNITION_STRATEGY" label="Activer la Stratégie d'Ignition 🚀" />
+                            <div className={`grid grid-cols-2 gap-4 transition-opacity ${settings.USE_IGNITION_STRATEGY ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <InputField id="IGNITION_PRICE_SPIKE_PCT" label="Seuil de Hausse de Prix (%)" step="0.5" />
+                                <InputField id="IGNITION_VOLUME_MULTIPLE" label="Multiplicateur de Volume (x)" step="1" />
+                            </div>
                         </div>
                     </div>
                     {/* Advanced Strategy */}

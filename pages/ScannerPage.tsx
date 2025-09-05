@@ -182,6 +182,8 @@ const ScannerPage: React.FC = () => {
         switch (pair.score) {
             case 'STRONG BUY':
                 return { className: 'bg-green-600 text-green-100', text: 'STRONG BUY' };
+            case 'IGNITION_DETECTED':
+                return { className: 'bg-cyan-500 text-cyan-100 animate-pulse', text: 'IGNITION' };
             case 'MOMENTUM_BUY':
                 return { className: 'bg-orange-500 text-orange-100', text: 'MOMENTUM' };
             case 'BUY':
@@ -325,7 +327,7 @@ const ScannerPage: React.FC = () => {
                             const priceClass = pair.priceDirection === 'up' ? 'text-green-400' : (pair.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
                             const bbWidth = pair.bollinger_bands_15m?.width_pct;
                             const scoreDisplay = getScoreDisplay(pair);
-                            const rowClass = pair.score === 'PENDING_CONFIRMATION' ? 'bg-sky-900/40' : '';
+                            const rowClass = pair.score === 'PENDING_CONFIRMATION' ? 'bg-sky-900/40' : (pair.score === 'IGNITION_DETECTED' ? 'bg-cyan-900/40' : '');
                             const trendClass = getTrendColorClass(pair.price_above_ema50_4h);
 
                             const { met, total } = (() => {
@@ -338,6 +340,7 @@ const ScannerPage: React.FC = () => {
                              const strategyIcon = useMemo(() => {
                                 if (pair.strategy_type === 'PRECISION') return '🎯';
                                 if (pair.strategy_type === 'MOMENTUM') return '🔥';
+                                if (pair.strategy_type === 'IGNITION') return '🚀';
                                 return '';
                             }, [pair.strategy_type]);
 
@@ -348,7 +351,11 @@ const ScannerPage: React.FC = () => {
                                     className={`hover:bg-[#2b2f38]/50 cursor-pointer transition-colors ${rowClass}`}
                                 >
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-center text-xl">
-                                        <span title={pair.strategy_type === 'PRECISION' ? 'Signal de Précision (Squeeze)' : 'Signal de Momentum détecté'}>
+                                        <span title={
+                                            pair.strategy_type === 'PRECISION' ? 'Signal de Précision (Squeeze)' : 
+                                            pair.strategy_type === 'MOMENTUM' ? 'Signal de Momentum détecté' :
+                                            pair.strategy_type === 'IGNITION' ? 'Signal d\'Ignition (Anomalie)' : ''
+                                        }>
                                             {strategyIcon}
                                         </span>
                                     </td>

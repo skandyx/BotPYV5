@@ -36,6 +36,7 @@ const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
     if (!score) return 'bg-gray-700 text-gray-200';
     switch (score) {
         case 'STRONG BUY': return 'bg-green-600 text-green-100';
+        case 'IGNITION_DETECTED': return 'bg-cyan-500 text-cyan-100';
         case 'MOMENTUM_BUY': return 'bg-orange-500 text-orange-100';
         case 'BUY': return 'bg-green-800 text-green-200';
         case 'HOLD': return 'bg-gray-700 text-gray-200';
@@ -304,8 +305,12 @@ const HistoryPage: React.FC = () => {
                         >
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{trade.symbol}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-center">
-                                <span className="text-xl" title={trade.strategy_type === 'MOMENTUM' ? 'Momentum' : 'Précision'}>
-                                    {trade.strategy_type === 'MOMENTUM' ? '🔥' : '🎯'}
+                                <span className="text-xl" title={
+                                    trade.strategy_type === 'MOMENTUM' ? 'Momentum' : 
+                                    trade.strategy_type === 'IGNITION' ? 'Ignition' : 'Précision'
+                                }>
+                                    {trade.strategy_type === 'MOMENTUM' ? '🔥' : 
+                                     trade.strategy_type === 'IGNITION' ? '🚀' : '🎯'}
                                 </span>
                             </td>
                             <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(trade.side)}`}>{trade.side}</td>
