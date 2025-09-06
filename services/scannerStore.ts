@@ -1,3 +1,4 @@
+
 import { ScannedPair, BotSettings } from '../types';
 import { logService } from './logService';
 

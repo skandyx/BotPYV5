@@ -1,3 +1,4 @@
+
 import { PriceUpdate } from './websocketService';
 import { scannerStore } from './scannerStore';
 
@@ -17,13 +18,19 @@ class PriceStore {
         this.subscribers.delete(callback);
     }
 
-    public updatePrice(update: PriceUpdate): void {
-        this.prices.set(update.symbol, update);
+    public updatePrice(update: { symbol: string, price: number }): void {
+        const augmentedUpdate: PriceUpdate = {
+            ...update,
+            lastUpdated: Date.now()
+        };
+
+        this.prices.set(update.symbol, augmentedUpdate);
+        
         // This call is necessary to show 1-second price updates on the scanner page.
-        scannerStore.handlePriceUpdate(update);
+        scannerStore.handlePriceUpdate(augmentedUpdate);
         
         // Notify direct subscribers (like positionService for real-time PnL)
-        this.subscribers.forEach(callback => callback(update));
+        this.subscribers.forEach(callback => callback(augmentedUpdate));
     }
 
     public getPrice(symbol: string): PriceUpdate | undefined {

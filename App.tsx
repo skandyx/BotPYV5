@@ -6,6 +6,7 @@ import { BotStateProvider } from './contexts/BotStateContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import { AppProvider } from './contexts/AppContext';
 import { SidebarProvider } from './contexts/SidebarContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import Layout from './components/layout/Layout';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -53,7 +54,9 @@ const App: React.FC = () => {
         <WebSocketProvider>
           <AppProvider>
             <SidebarProvider>
-              <AppRoutes />
+              <NotificationProvider>
+                <AppRoutes />
+              </NotificationProvider>
             </SidebarProvider>
           </AppProvider>
         </WebSocketProvider>

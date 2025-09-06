@@ -1,4 +1,5 @@
 
+
 export class TradingEngineService {
     constructor(botState, log, broadcast, saveData, binanceApiClient, symbolRules) {
         this.botState = botState;
@@ -208,7 +209,6 @@ export class TradingEngineService {
         const params = position.trade_params || {};
 
         // --- Gestion Dynamique du Risque ---
-        // 1. Auto Breakeven
         if (params.useAutoBreakeven && !position.is_at_breakeven) {
             const initialRisk = position.average_entry_price - position.initial_stop_loss;
             if (initialRisk > 0) {
@@ -228,7 +228,6 @@ export class TradingEngineService {
             }
         }
 
-        // 2. Adaptive Trailing Stop (Profil Sniper)
         if (params.useAdaptiveTs && !position.trailing_stop_tightened && position.entry_atr > 0) {
             const initialRisk = position.average_entry_price - position.initial_stop_loss;
             if (initialRisk > 0) {
@@ -247,7 +246,6 @@ export class TradingEngineService {
             }
         }
 
-        // 3. Ignition Trailing Stop (Profil Ignition)
         if (position.strategy_type === 'IGNITION' && this.botState.settings.USE_IGNITION_TRAILING_STOP) {
             const trailingStopPct = this.botState.settings.IGNITION_TRAILING_STOP_PCT / 100;
             const newStopLoss = position.highest_price_since_entry * (1 - trailingStopPct);
@@ -259,16 +257,38 @@ export class TradingEngineService {
         // --- Vérification de Sortie ---
         let exitReason = null;
         let exitPrice = currentPrice;
+        let theoreticalExitPrice = 0;
+        let slippage = 0;
         
         if (currentPrice <= position.stop_loss) {
             exitReason = 'Stop Loss atteint';
-            exitPrice = position.stop_loss;
-        } else if (position.strategy_type !== 'IGNITION' && currentPrice >= position.take_profit) {
+            theoreticalExitPrice = position.stop_loss;
+            exitPrice = currentPrice; 
+            slippage = theoreticalExitPrice - exitPrice;
+        } else if (position.strategy_type !== 'IGNITION' && currentPrice >= position.take_profit && position.take_profit !== Infinity) {
             exitReason = 'Take Profit atteint';
-            exitPrice = position.take_profit;
+            theoreticalExitPrice = position.take_profit;
+            exitPrice = currentPrice;
+            slippage = exitPrice - theoreticalExitPrice;
         }
         
         if (exitReason) {
+            if (theoreticalExitPrice > 0) {
+                const slippagePctOfPrice = Math.abs(slippage / theoreticalExitPrice);
+                if (slippagePctOfPrice > 0.005) { // 0.5%
+                    const message = `Slippage important (${(slippagePctOfPrice * 100).toFixed(2)}%) détecté pour ${position.symbol}! Sortie prévue à ${theoreticalExitPrice.toFixed(4)}, sortie réelle à ${exitPrice.toFixed(4)}.`;
+                    this.log('WARN', message);
+                    this.broadcast({ 
+                        type: 'TRADE_ALERT', 
+                        payload: {
+                            level: 'warning',
+                            title: 'Slippage Important Détecté',
+                            message,
+                        }
+                    });
+                }
+            }
+
             this.log('TRADE', `${exitReason} pour ${position.symbol} au prix de ${exitPrice}.`);
             this.closePosition(position, exitPrice);
         }

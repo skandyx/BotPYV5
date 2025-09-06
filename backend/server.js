@@ -70,7 +70,25 @@ wss.on('connection', (ws) => {
             const data = JSON.parse(message.toString());
             if (data.type === 'GET_FULL_SCANNER_LIST') {
                 log('WEBSOCKET', 'Client requested full scanner list. Sending...');
-                ws.send(JSON.stringify({ type: 'FULL_SCANNER_LIST', payload: botState.scannerCache }));
+                const scannerList = botState.scannerCache;
+                ws.send(JSON.stringify({ type: 'FULL_SCANNER_LIST', payload: scannerList }));
+
+                // If the scanner list is empty on first load, proactively inform the user.
+                if (scannerList.length === 0) {
+                    // Use a small delay to ensure the UI has time to process the empty list first.
+                    setTimeout(() => {
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'TRADE_ALERT',
+                                payload: {
+                                    level: 'info',
+                                    title: 'Scanner de Marché Vide',
+                                    message: 'Aucune paire ne correspond actuellement à vos filtres. Vérifiez le "Volume 24h Minimum" dans les Paramètres si le marché est calme.'
+                                }
+                            }));
+                        }
+                    }, 1000);
+                }
             }
         } catch (e) {
             log('ERROR', `Failed to parse message from client: ${message}`);

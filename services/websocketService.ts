@@ -1,3 +1,4 @@
+
 import { WebSocketStatus, LogEntry, CircuitBreakerStatus, FearAndGreed } from '../types';
 import { logService } from './logService';
 import { priceStore } from './priceStore';
@@ -6,18 +7,27 @@ import { scannerStore } from './scannerStore';
 export interface PriceUpdate {
     symbol: string;
     price: number;
+    lastUpdated: number;
+}
+
+export interface TradeAlert {
+    level: 'info' | 'warning' | 'error';
+    title: string;
+    message: string;
 }
 
 type StatusChangeCallback = (status: WebSocketStatus) => void;
 type DataRefreshCallback = () => void;
 type CircuitBreakerCallback = (payload: { status: CircuitBreakerStatus }) => void;
 type FearAndGreedCallback = (payload: FearAndGreed) => void;
+type TradeAlertCallback = (payload: TradeAlert) => void;
 
 let socket: WebSocket | null = null;
 let statusCallback: StatusChangeCallback | null = null;
 let dataRefreshCallback: DataRefreshCallback | null = null;
 let circuitBreakerCallback: CircuitBreakerCallback | null = null;
 let fearAndGreedCallback: FearAndGreedCallback | null = null;
+let tradeAlertCallback: TradeAlertCallback | null = null;
 let reconnectTimeout: number | null = null;
 let isManualDisconnect = false;
 
@@ -78,6 +88,13 @@ const connect = () => {
                 case 'BOT_STATUS_UPDATE':
                     logService.log('INFO', `Bot running state is now: ${message.payload.isRunning}`);
                     break;
+                case 'TRADE_ALERT':
+                    const alertPayload = message.payload as TradeAlert;
+                    const levelMap: Record<string, LogEntry['level']> = { 'info': 'INFO', 'warning': 'WARN', 'error': 'ERROR' };
+                    const logLevel = levelMap[alertPayload.level] || 'INFO';
+                    logService.log(logLevel, `Received Trade Alert: ${alertPayload.title} - ${alertPayload.message}`);
+                    tradeAlertCallback?.(alertPayload);
+                    break;
                 case 'LOG_ENTRY':
                     const logPayload = message.payload as LogEntry;
                     logService.log(logPayload.level, logPayload.message);
@@ -131,5 +148,8 @@ export const websocketService = {
     },
     onFearAndGreedUpdate: (callback: FearAndGreedCallback | null) => {
         fearAndGreedCallback = callback;
-    }
+    },
+    onTradeAlert: (callback: TradeAlertCallback | null) => {
+        tradeAlertCallback = callback;
+    },
 };
