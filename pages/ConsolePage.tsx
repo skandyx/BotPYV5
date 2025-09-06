@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { logService } from '../services/logService';
 import { LogEntry, LOG_LEVELS, LogTab } from '../types';
+import { api } from '../services/mockApi';
 
 const TABS: Readonly<LogTab[]> = ['ALL', ...LOG_LEVELS];
 
@@ -8,15 +9,39 @@ const ConsolePage: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [activeTab, setActiveTab] = useState<LogTab>('ALL');
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  // Effect to reload logs from the service when the active tab changes.
+  // Effect to fetch initial logs from the backend on mount
   useEffect(() => {
-    setLogs(logService.getLogs(activeTab));
-  }, [activeTab]);
+    const fetchInitialLogs = async () => {
+        try {
+            const historicalLogs = await api.fetchLogs();
+            // Filter immediately based on the initial active tab
+            const initialFilteredLogs = activeTab === 'ALL'
+                ? historicalLogs
+                : historicalLogs.filter(log => log.level === activeTab);
+            setLogs(initialFilteredLogs);
+        } catch (error) {
+            console.error("Failed to fetch historical logs:", error);
+            // Add a log to the UI to indicate failure
+            const errorLog: LogEntry = {
+                timestamp: new Date().toISOString(),
+                level: 'ERROR',
+                message: 'Failed to load historical logs from the server.'
+            };
+            setLogs([errorLog]);
+        } finally {
+            setIsInitialized(true);
+        }
+    };
+    fetchInitialLogs();
+  }, []); // Runs only once on mount
 
-  // Effect to handle live log updates. It re-subscribes when the active tab
-  // changes to ensure the closure captures the correct `activeTab` value.
+  // Effect to handle live log updates via WebSocket
   useEffect(() => {
+    // Don't subscribe until the initial logs are loaded to prevent duplicates
+    if (!isInitialized) return;
+
     const handleNewLog = (newLog: LogEntry) => {
       if (activeTab === 'ALL' || activeTab === newLog.level) {
         setLogs(prevLogs => [...prevLogs.slice(-499), newLog]);
@@ -24,18 +49,26 @@ const ConsolePage: React.FC = () => {
     };
 
     logService.subscribe(handleNewLog);
-
     return () => {
       logService.unsubscribe(handleNewLog);
     };
-  }, [activeTab]);
-
+  }, [activeTab, isInitialized]);
+  
   // Effect to scroll to the top to show the latest log first
   useEffect(() => {
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = 0;
     }
-  }, [logs, activeTab]);
+  }, [logs]);
+
+  // Handle tab change: refetch and filter from the central service
+  const handleTabChange = (tab: LogTab) => {
+    setActiveTab(tab);
+    // The central logService in the frontend still holds all live logs received.
+    // We can use it to switch tabs without another API call.
+    setLogs(logService.getLogs(tab));
+  };
+
 
   const getLogLevelClass = (level: LogEntry['level']) => {
     switch (level) {
@@ -52,8 +85,6 @@ const ConsolePage: React.FC = () => {
     }
   };
 
-  // The filtering is now implicitly handled by the state `logs` which is
-  // loaded based on the active tab.
   const displayedLogs = logs;
 
   const timestampFormatOptions: Intl.DateTimeFormatOptions = {
@@ -74,7 +105,7 @@ const ConsolePage: React.FC = () => {
               {TABS.map(tab => (
                   <button
                       key={tab}
-                      onClick={() => setActiveTab(tab)}
+                      onClick={() => handleTabChange(tab)}
                       className={`px-4 py-2 text-sm font-medium border-b-2 capitalize transition-colors flex-shrink-0 ${
                           activeTab === tab
                               ? 'border-[#f0b90b] text-[#f0b90b]'

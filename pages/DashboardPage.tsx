@@ -12,6 +12,7 @@ import TradingViewWidget from '../components/common/TradingViewWidget';
 
 const formatPrice = (price: number | undefined | null): string => {
     if (price === undefined || price === null) return 'N/A';
+    if (price === Infinity) return '∞';
     if (price >= 1000) return price.toFixed(2);
     if (price >= 10) return price.toFixed(3);
     if (price >= 0.1) return price.toFixed(4);
@@ -106,7 +107,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                         {isIgnitionTrailingActive && <span className="ml-2 text-lg" title="Stop Loss Suiveur Éclair Actif">⚡</span>}
                                     </div>
                                 </td>
-                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${isIgnitionTrailingActive ? '∞' : formatPrice(pos.take_profit)}</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.take_profit)}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl)}`}>${pos.pnl?.toFixed(2) || '0.00'}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl_pct)}`}>{pos.pnl_pct?.toFixed(2) || 'N/A'}%</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm">

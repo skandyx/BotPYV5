@@ -1,4 +1,3 @@
-
 import { RSI, ADX, ATR, BollingerBands, EMA, OBV, SMA } from 'technicalindicators';
 import { ScannerService } from './ScannerService.js';
 
@@ -99,6 +98,7 @@ export class RealtimeAnalyzerService {
                 break;
             case '5m':
                 result.cvd_5m_trending_up = this.getCvdSlope(klines) > 0;
+                result.obv_5m_slope = this.getObvSlope(klines);
                 const lastCandle5m = klines[klines.length - 1];
                 const avgVolume5m = SMA.calculate({ period: 20, values: volumes }).pop();
                 result.momentum_confirmation_5m = lastCandle5m.close > lastCandle5m.open && lastCandle5m.volume > avgVolume5m;
@@ -134,7 +134,7 @@ export class RealtimeAnalyzerService {
     }
 
     evaluateStrategy(pair, analysis1m, analysis5m, klines1m) {
-        let conditions = { trend: false, squeeze: false, breakout: false, volume: false, safety: false, obv: false, rsi_mtf: false, cvd_5m_trending_up: false, momentum_impulse: false, momentum_confirmation: false };
+        let conditions = { trend: false, squeeze: false, breakout: false, volume: false, safety: false, obv: false, rsi_mtf: false, cvd_5m_trending_up: false, wick_detection: false, obv_5m: false, momentum_impulse: false, momentum_confirmation: false };
         const shared = this.evaluateSharedConditions(pair, conditions);
         
         const ignitionResult = this.evaluateIgnitionStrategy(pair, klines1m, shared.conditions);
@@ -145,10 +145,24 @@ export class RealtimeAnalyzerService {
         if (momentumResult.score_value > finalResult.score_value) finalResult = momentumResult;
         if (ignitionResult.score_value > finalResult.score_value) finalResult = ignitionResult;
         
-        let metCount = Object.values(finalResult.conditions).filter(c => c === true).length;
+        let relevantConditions, metCount = 0, totalConditions = 0;
+
+        if (finalResult.strategy_type === 'PRECISION') {
+            relevantConditions = ['trend', 'squeeze', 'breakout', 'volume', 'safety', 'obv', 'rsi_mtf', 'cvd_5m_trending_up', 'wick_detection', 'obv_5m'];
+        } else if (finalResult.strategy_type === 'MOMENTUM') {
+            relevantConditions = ['trend', 'safety', 'rsi_mtf', 'momentum_impulse', 'momentum_confirmation'];
+        } else { 
+            relevantConditions = ['trend'];
+        }
+
+        totalConditions = relevantConditions.length;
+        relevantConditions.forEach(key => {
+            if (finalResult.conditions[key] === true) metCount++;
+        });
         
         pair.conditions = finalResult.conditions;
         pair.conditions_met_count = metCount;
+        pair.conditions_total_count = totalConditions;
         pair.score = finalResult.score;
         pair.score_value = finalResult.score_value;
         pair.strategy_type = finalResult.strategy_type;
@@ -204,12 +218,18 @@ export class RealtimeAnalyzerService {
             result.score_value = 70;
             const lastCandle1m = klines1m[klines1m.length - 1];
             if (lastCandle1m) {
+                const candleRange = lastCandle1m.high - lastCandle1m.low;
+                const upperWick = lastCandle1m.high - Math.max(lastCandle1m.open, lastCandle1m.close);
+                const wickPct = candleRange > 0 ? (upperWick / candleRange) * 100 : 100;
+
                 result.conditions.breakout = lastCandle1m.close > (analysis1m.ema9_1m || 0);
                 result.conditions.volume = this.settings.USE_VOLUME_CONFIRMATION ? lastCandle1m.volume > ((analysis1m.volume_avg_1m || 0) * 1.5) : true;
                 result.conditions.obv = this.settings.USE_OBV_VALIDATION ? (analysis1m.obv_1m_slope || 0) > 0 : true;
                 result.conditions.cvd_5m_trending_up = this.settings.USE_CVD_FILTER ? analysis5m.cvd_5m_trending_up : true;
+                result.conditions.wick_detection = this.settings.USE_WICK_DETECTION_FILTER ? wickPct <= this.settings.MAX_UPPER_WICK_PCT : true;
+                result.conditions.obv_5m = this.settings.USE_OBV_5M_VALIDATION ? (analysis5m.obv_5m_slope || 0) > 0 : true;
 
-                if (result.conditions.breakout && result.conditions.volume && result.conditions.obv && result.conditions.cvd_5m_trending_up && conditions.safety && conditions.rsi_mtf) {
+                if (result.conditions.breakout && result.conditions.volume && result.conditions.obv && result.conditions.cvd_5m_trending_up && conditions.safety && conditions.rsi_mtf && result.conditions.wick_detection && result.conditions.obv_5m) {
                     result.score = 'PENDING_CONFIRMATION';
                     result.score_value = 80;
                 }

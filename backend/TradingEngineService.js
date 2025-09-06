@@ -129,15 +129,24 @@ export class TradingEngineService {
             return;
         }
 
-        const takeProfitPrice = (pair.strategy_type === 'IGNITION')
-            ? price + (riskPerUnit * settings.RISK_REWARD_RATIO) // Placeholder, TSL takes over
-            : price + (riskPerUnit * params.riskRewardRatio);
-        
+        let takeProfitPrice;
+        if (pair.strategy_type === 'IGNITION') {
+            if (settings.USE_IGNITION_TRAILING_STOP) {
+                takeProfitPrice = Infinity; // Let TSL manage the exit
+            } else {
+                // Fallback to a fixed TP if TSL is disabled for Ignition
+                takeProfitPrice = price + (riskPerUnit * settings.RISK_REWARD_RATIO); 
+            }
+        } else {
+            // For Precision and Momentum strategies
+            takeProfitPrice = price + (riskPerUnit * params.riskRewardRatio);
+        }
+
         this.openPosition(pair, quantity, stopLossPrice, takeProfitPrice, params);
     }
     
     async openPosition(pair, quantity, stopLoss, takeProfit, tradeParams) {
-        const { symbol, price, score, strategy_type } = pair;
+        const { symbol, price, score, strategy_type, atr_15m } = pair;
         const newTrade = {
             id: this.botState.tradeIdCounter++,
             mode: this.botState.tradingMode,
@@ -148,6 +157,7 @@ export class TradingEngineService {
             quantity,
             target_quantity: quantity,
             stop_loss: stopLoss,
+            initial_stop_loss: stopLoss,
             take_profit: takeProfit,
             entry_time: new Date().toISOString(),
             status: 'FILLED',
@@ -158,7 +168,10 @@ export class TradingEngineService {
             total_cost_usd: price * quantity,
             strategy_type,
             active_profile: tradeParams.name,
-            trade_params: tradeParams
+            trade_params: tradeParams,
+            entry_atr: atr_15m,
+            is_at_breakeven: false,
+            trailing_stop_tightened: false,
         };
 
         if (this.botState.tradingMode === 'REAL_LIVE' && this.apiClient) {
@@ -192,17 +205,60 @@ export class TradingEngineService {
         if (!currentPrice) return;
         
         position.highest_price_since_entry = Math.max(position.highest_price_since_entry, currentPrice);
-
-        let exitReason = null;
-        let exitPrice = currentPrice;
-
         const params = position.trade_params || {};
-        
+
+        // --- Gestion Dynamique du Risque ---
+        // 1. Auto Breakeven
+        if (params.useAutoBreakeven && !position.is_at_breakeven) {
+            const initialRisk = position.average_entry_price - position.initial_stop_loss;
+            if (initialRisk > 0) {
+                const currentProfit = currentPrice - position.average_entry_price;
+                if (currentProfit >= initialRisk * params.breakevenTriggerR) {
+                    let newStopLoss = position.average_entry_price;
+                    if (this.botState.settings.ADJUST_BREAKEVEN_FOR_FEES) {
+                        const fee = newStopLoss * (this.botState.settings.TRANSACTION_FEE_PCT / 100) * 2;
+                        newStopLoss += fee;
+                    }
+                    if (newStopLoss > position.stop_loss) {
+                        position.stop_loss = newStopLoss;
+                        position.is_at_breakeven = true;
+                        this.log('TRADE', `[${position.symbol}] BREAKEVEN: SL déplacé à ${newStopLoss.toFixed(4)}.`);
+                    }
+                }
+            }
+        }
+
+        // 2. Adaptive Trailing Stop (Profil Sniper)
+        if (params.useAdaptiveTs && !position.trailing_stop_tightened && position.entry_atr > 0) {
+            const initialRisk = position.average_entry_price - position.initial_stop_loss;
+            if (initialRisk > 0) {
+                const currentR = (currentPrice - position.average_entry_price) / initialRisk;
+                if (currentR >= params.trailingStopTightenThresholdR) {
+                    const reducedMultiplier = params.atrMultiplier - params.trailingStopTightenMultiplierReduction;
+                    if (reducedMultiplier > 0) {
+                        const newTrailingStop = position.highest_price_since_entry - (position.entry_atr * reducedMultiplier);
+                        if (newTrailingStop > position.stop_loss) {
+                            position.stop_loss = newTrailingStop;
+                            position.trailing_stop_tightened = true;
+                            this.log('TRADE', `[${position.symbol}] ADAPTIVE TS: Resserrement du SL à ${newTrailingStop.toFixed(4)} (Multiplicateur réduit).`);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Ignition Trailing Stop (Profil Ignition)
         if (position.strategy_type === 'IGNITION' && this.botState.settings.USE_IGNITION_TRAILING_STOP) {
             const trailingStopPct = this.botState.settings.IGNITION_TRAILING_STOP_PCT / 100;
             const newStopLoss = position.highest_price_since_entry * (1 - trailingStopPct);
-            if (newStopLoss > position.stop_loss) position.stop_loss = newStopLoss;
+            if (newStopLoss > position.stop_loss) {
+                position.stop_loss = newStopLoss;
+            }
         }
+        
+        // --- Vérification de Sortie ---
+        let exitReason = null;
+        let exitPrice = currentPrice;
         
         if (currentPrice <= position.stop_loss) {
             exitReason = 'Stop Loss atteint';

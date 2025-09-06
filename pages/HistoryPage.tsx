@@ -20,6 +20,7 @@ interface SortConfig {
 // --- HELPER FUNCTIONS ---
 const formatPrice = (price: number | undefined | null): string => {
     if (price === undefined || price === null) return 'N/A';
+    if (price === Infinity) return '∞';
     if (price >= 1000) return price.toFixed(2);
     if (price >= 10) return price.toFixed(3);
     if (price >= 0.1) return price.toFixed(4);

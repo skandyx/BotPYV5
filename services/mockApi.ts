@@ -1,4 +1,4 @@
-import { BotSettings, Trade, TradingMode, BacktestResult } from '../types';
+import { BotSettings, Trade, TradingMode, BacktestResult, LogEntry } from '../types';
 import { logService } from './logService';
 
 const API_BASE_URL = '/api';
@@ -85,6 +85,9 @@ export const api = {
     },
     fetchScannedPairs: async () => {
         return apiFetch('/scanner');
+    },
+     fetchLogs: async (): Promise<LogEntry[]> => {
+        return apiFetch('/logs');
     },
 
     // Actions

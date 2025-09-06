@@ -1,4 +1,3 @@
-
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -98,10 +97,20 @@ function broadcast(message) {
 }
 
 // --- Logging Service ---
+const logBuffer = [];
+const MAX_LOG_BUFFER = 500;
 const log = (level, message) => {
     const timestamp = new Date().toISOString();
+    const logEntry = { timestamp, level, message };
+    
+    // Maintain server-side buffer
+    logBuffer.push(logEntry);
+    if (logBuffer.length > MAX_LOG_BUFFER) {
+        logBuffer.shift();
+    }
+    
     console.log(`[${timestamp}] [${level}] ${message}`);
-    broadcast({ type: 'LOG_ENTRY', payload: { timestamp, level, message }});
+    broadcast({ type: 'LOG_ENTRY', payload: logEntry});
 };
 
 // --- Binance API Client ---
@@ -618,6 +627,8 @@ app.get('/api/status', isAuthenticated, (req, res) => res.json({
 app.get('/api/positions', isAuthenticated, (req, res) => res.json(botState.activePositions));
 app.get('/api/history', isAuthenticated, (req, res) => res.json(botState.tradeHistory));
 app.get('/api/scanner', isAuthenticated, (req, res) => res.json(botState.scannerCache));
+app.get('/api/logs', isAuthenticated, (req, res) => res.json(logBuffer));
+
 
 app.get('/api/performance-stats', isAuthenticated, (req, res) => {
     const closedTrades = botState.tradeHistory.filter(t => t.status === 'CLOSED');

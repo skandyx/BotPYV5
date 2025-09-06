@@ -1,6 +1,6 @@
 
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ScannedPair, StrategyConditions, BotSettings } from '../types';
 import Spinner from '../components/common/Spinner';
 import { scannerStore } from '../services/scannerStore';
@@ -18,8 +18,13 @@ interface SortConfig {
   direction: SortDirection;
 }
 
+// --- VIRTUALIZATION CONSTANTS ---
+const ROW_HEIGHT = 58; // The fixed height of each table row in pixels
+const OVERSCAN_COUNT = 8; // The number of extra rows to render above and below the visible area
+
 const formatPrice = (price: number | undefined | null): string => {
     if (price === undefined || price === null) return 'N/A';
+    if (price === Infinity) return '∞';
     if (price >= 1000) return price.toFixed(2);
     if (price >= 10) return price.toFixed(3);
     if (price >= 0.1) return price.toFixed(4);
@@ -78,10 +83,12 @@ const ConditionDots: React.FC<{ conditions?: StrategyConditions }> = ({ conditio
         breakout: 'Précision: Cassure 1m (Clôture > EMA9)',
         volume: 'Précision: Volume 1m (> 1.5x Moyenne)',
         obv: 'Précision: Confirmation OBV 1m',
+        obv_5m: 'Précision: Confirmation OBV 5m (Anti-Divergence)',
         cvd_5m_trending_up: 'Précision: Confirmation CVD 5m',
         safety: 'Sécurité Partagée: RSI 1h < Seuil',
         rsi_mtf: 'Sécurité Partagée: RSI 15m < Seuil',
-        structure: 'Précision: Confirmation Structurelle 15m',
+        wick_detection: 'Sécurité Précision: Mèche supérieure 1m < Seuil (Anti-Piège)',
+        structure: 'Précision: Confirmation Structurelle 15m (Non utilisé actuellement)',
         momentum_impulse: 'Momentum: Bougie d\'impulsion 15m',
         momentum_confirmation: 'Momentum: Suivi 5m',
     };
@@ -92,10 +99,11 @@ const ConditionDots: React.FC<{ conditions?: StrategyConditions }> = ({ conditio
             <Dot active={conditions?.breakout ?? false} tooltip={conditionTooltips.breakout} />
             <Dot active={conditions?.volume ?? false} tooltip={conditionTooltips.volume} />
             <Dot active={conditions?.obv ?? false} tooltip={conditionTooltips.obv} />
+            <Dot active={conditions?.obv_5m ?? false} tooltip={conditionTooltips.obv_5m} />
             <Dot active={conditions?.cvd_5m_trending_up ?? false} tooltip={conditionTooltips.cvd_5m_trending_up} />
+            <Dot active={conditions?.wick_detection ?? false} tooltip={conditionTooltips.wick_detection} />
             <Dot active={conditions?.safety ?? false} tooltip={conditionTooltips.safety} />
             <Dot active={conditions?.rsi_mtf ?? false} tooltip={conditionTooltips.rsi_mtf} />
-            <Dot active={conditions?.structure ?? false} tooltip={conditionTooltips.structure} />
             <Dot active={conditions?.momentum_impulse ?? false} tooltip={conditionTooltips.momentum_impulse} />
         </div>
     );
@@ -109,8 +117,11 @@ const ScannerPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const { settings } = useAppContext();
 
-  // Robust check to ensure all required settings for rendering are fully loaded.
-  // This prevents crashes from race conditions on page refresh.
+  // --- VIRTUALIZATION STATE & REFS ---
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const settingsReady = useMemo(() => {
     if (!settings) return false;
     return (
@@ -135,12 +146,28 @@ const ScannerPage: React.FC = () => {
     };
   }, []);
 
+  // Effect to measure container height for virtualization calculations
+  useEffect(() => {
+    const updateHeight = () => {
+      if (containerRef.current) {
+        setContainerHeight(containerRef.current.clientHeight);
+      }
+    };
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, []);
+
   const requestSort = (key: SortableKeys) => {
     let direction: SortDirection = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
       direction = 'desc';
     }
     setSortConfig({ key, direction });
+  };
+  
+  const handleScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(event.currentTarget.scrollTop);
   };
 
   const filteredAndSortedPairs = useMemo(() => {
@@ -154,7 +181,6 @@ const ScannerPage: React.FC = () => {
         let aVal, bVal;
         const key = sortConfig.key;
         
-        // --- Custom sort logic for nested/derived properties ---
         if (key === 'bollinger_bands_15m') {
             aVal = a.bollinger_bands_15m?.width_pct;
             bVal = b.bollinger_bands_15m?.width_pct;
@@ -178,6 +204,34 @@ const ScannerPage: React.FC = () => {
     return sortablePairs;
   }, [pairs, sortConfig, searchQuery]);
   
+  // --- VIRTUALIZATION CALCULATIONS ---
+  const totalRowCount = filteredAndSortedPairs.length;
+  
+  const startIndex = useMemo(() =>
+    Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_COUNT),
+    [scrollTop]
+  );
+  
+  const endIndex = useMemo(() =>
+    Math.min(
+      totalRowCount - 1,
+      Math.floor((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN_COUNT
+    ),
+    [scrollTop, containerHeight, totalRowCount]
+  );
+  
+  const visibleRows = useMemo(() =>
+    filteredAndSortedPairs.slice(startIndex, endIndex + 1),
+    [filteredAndSortedPairs, startIndex, endIndex]
+  );
+  
+  const paddingTop = useMemo(() => startIndex * ROW_HEIGHT, [startIndex]);
+  
+  const paddingBottom = useMemo(() =>
+    Math.max(0, (totalRowCount - endIndex - 1) * ROW_HEIGHT),
+    [totalRowCount, endIndex]
+  );
+
     const getScoreDisplay = (pair: ScannedPair): { className: string; text: string } => {
         switch (pair.score) {
             case 'STRONG BUY':
@@ -296,7 +350,12 @@ const ScannerPage: React.FC = () => {
                 />
             </div>
         </div>
-        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 20rem)' }}>
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="overflow-x-auto overflow-y-auto"
+          style={{ maxHeight: 'calc(100vh - 20rem)' }}
+        >
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f] sticky top-0 z-10">
                     <tr>
@@ -323,19 +382,20 @@ const ScannerPage: React.FC = () => {
                 </thead>
                 <tbody className="bg-[#14181f]/50 divide-y divide-[#2b2f38]">
                     {filteredAndSortedPairs.length > 0 ? (
-                        filteredAndSortedPairs.map(pair => {
+                        <>
+                          {paddingTop > 0 && (
+                            <tr style={{ height: `${paddingTop}px` }}>
+                              <td colSpan={totalColumnCount} className="p-0"></td>
+                            </tr>
+                          )}
+                          {visibleRows.map(pair => {
                             const priceClass = pair.priceDirection === 'up' ? 'text-green-400' : (pair.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
                             const bbWidth = pair.bollinger_bands_15m?.width_pct;
                             const scoreDisplay = getScoreDisplay(pair);
                             const rowClass = pair.score === 'PENDING_CONFIRMATION' ? 'bg-sky-900/40' : (pair.score === 'IGNITION_DETECTED' ? 'bg-cyan-900/40' : '');
                             const trendClass = getTrendColorClass(pair.price_above_ema50_4h);
 
-                            const { met, total } = (() => {
-                                if (!settings || !pair.conditions) return { met: pair.conditions_met_count || 0, total: 8 };
-                                // This logic is now handled entirely by the backend to simplify the frontend.
-                                // We just display what the backend provides.
-                                return { met: pair.conditions_met_count || 0, total: 8 };
-                            })();
+                            const { met, total } = { met: pair.conditions_met_count || 0, total: pair.conditions_total_count || 8 };
 
                              const strategyIcon = useMemo(() => {
                                 if (pair.strategy_type === 'PRECISION') return '🎯';
@@ -349,6 +409,7 @@ const ScannerPage: React.FC = () => {
                                     key={pair.symbol}
                                     onClick={() => setSelectedSymbol(pair.symbol)}
                                     className={`hover:bg-[#2b2f38]/50 cursor-pointer transition-colors ${rowClass}`}
+                                    style={{ height: `${ROW_HEIGHT}px` }}
                                 >
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-center text-xl">
                                         <span title={
@@ -424,7 +485,13 @@ const ScannerPage: React.FC = () => {
                                     </td>
                                 </tr>
                             )
-                        })
+                        })}
+                        {paddingBottom > 0 && (
+                          <tr style={{ height: `${paddingBottom}px` }}>
+                            <td colSpan={totalColumnCount} className="p-0"></td>
+                          </tr>
+                        )}
+                        </>
                     ) : (
                          <tr>
                             <td colSpan={totalColumnCount} className="px-6 py-16 text-center text-gray-500">

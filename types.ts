@@ -71,6 +71,7 @@ export interface Trade {
   realized_pnl?: number; // For tracking profit from partial sells
   entry_snapshot?: ScannedPair; // Capture scanner state at entry
   trailing_stop_tightened?: boolean; // For adaptive trailing stop logic
+  entry_atr?: number; // ATR at the time of entry for adaptive TSL
   total_cost_usd: number;
   is_scaling_in?: boolean;
   current_entry_count?: number;
@@ -91,6 +92,8 @@ export interface StrategyConditions {
     obv?: boolean; // 1m OBV
     rsi_mtf?: boolean; // New: 15m RSI safety check
     cvd_5m_trending_up?: boolean; // New: 5m Cumulative Volume Delta
+    wick_detection?: boolean; // New: Check for large upper wicks on trigger candle
+    obv_5m?: boolean; // New: Validate OBV on 5m chart after confirmation
     // --- Momentum Strategy Specific ---
     momentum_impulse?: boolean; // 15m impulse candle
     momentum_confirmation?: boolean; // 5m follow-through
@@ -118,7 +121,8 @@ export interface ScannedPair {
     score_value?: number; // Numerical representation of the score
     trend_score?: number; // Nuanced score of trend strength (0-100)
     conditions?: StrategyConditions;
-    conditions_met_count?: number; // From 0 to 8
+    conditions_met_count?: number;
+    conditions_total_count?: number;
     is_on_hotlist?: boolean; // New: True if conditions are met for 1m precision entry
     strategy_type?: StrategyType; // New: Which strategy is flagging this pair
 }
